@@ -1,0 +1,16 @@
+langgraph
+langchain-google-genai
+llama-index
+llama-index-llms-gemini
+llama-index-embeddings-huggingface
+sentence-transformers
+crewai
+crewai-tools
+google-genai
+google-adk[a2a]
+fastapi
+uvicorn
+streamlit
+python-dotenv
+sqlalchemy
+httpx

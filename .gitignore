@@ -1,0 +1,31 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE and OS specific
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs and databases
+*.log
+*.sqlite3
+storage/
+chroma_db/
+.chroma/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/

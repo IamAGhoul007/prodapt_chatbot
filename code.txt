@@ -1,0 +1,1320 @@
+
+
+================================================================================
+File: dump_schema.py
+================================================================================
+
+import sqlite3
+import os
+
+db_path = os.path.join('d:\\capstone2', 'data', 'telecom_ops.db')
+conn = sqlite3.connect(db_path)
+cur = conn.cursor()
+cur.execute("SELECT sql FROM sqlite_master WHERE type='table'")
+for row in cur.fetchall():
+    if row[0]:
+        print(row[0])
+conn.close()
+
+================================================================================
+File: fix_adk_path.py
+================================================================================
+
+import sys
+import site
+import os
+
+for p in site.getsitepackages() + [site.getusersitepackages()]:
+    adk_path = os.path.join(p, 'google', 'adk')
+    if os.path.exists(adk_path) and adk_path not in sys.path:
+        sys.path.append(adk_path)
+
+================================================================================
+File: list_models.py
+================================================================================
+
+import os
+from dotenv import load_dotenv
+from google import genai
+load_dotenv()
+client = genai.Client()
+for m in client.models.list():
+    if 'embed' in m.name:
+        print(m.name)
+
+================================================================================
+File: README.md
+================================================================================
+
+# Capstone Project: Telecom AI Operations Center
+
+This repository contains the Telecom AI Operations Center application, built using LangGraph, CrewAI, LlamaIndex, and ADK (Agentic Development Kit).
+
+## Prerequisites
+
+1. **Python 3.10+** is required.
+2. Ensure you have your API keys ready (Google Gemini, OpenAI, Tavily, etc.).
+
+## Setup Instructions
+
+1. **Install Dependencies**
+   Run the following command to install all the required Python packages:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Environment Variables**
+   Create a `.env` file in the root directory and populate it with your necessary API keys (Make sure never to commit your `.env` file!):
+   ```env
+   GOOGLE_API_KEY=your_google_api_key_here
+   OPENAI_API_KEY=your_openai_api_key_here
+   TAVILY_API_KEY=your_tavily_api_key_here
+   OPENWEATHERMAP_API_KEY=your_openweathermap_key_here
+   ```
+
+## How to Run the Application
+
+The easiest way to start the application and all its microservices is by using the provided `run_all.py` script.
+
+From the root of the project, run:
+```bash
+python run_all.py
+```
+
+This script will automatically start:
+- **Network Diagnostics ADK Service** on `http://localhost:8001`
+- **Billing Resolution ADK Service** on `http://localhost:8002`
+- **Streamlit UI** on `http://localhost:8501`
+
+Wait for all services to start up, and then open your browser and navigate to **[http://localhost:8501](http://localhost:8501)** to interact with the application.
+
+## Stopping the Application
+
+To shut down the UI and all background ADK services gracefully, simply press `Ctrl + C` in the terminal where `run_all.py` is running.
+
+================================================================================
+File: run_all.py
+================================================================================
+
+import subprocess
+import time
+import sys
+import os
+import httpx
+
+# Force UTF-8 output so CrewAI emoji logs don't crash on Windows cp1252
+os.environ["PYTHONIOENCODING"] = "utf-8"
+
+def wait_for_service(url: str, name: str, timeout: int = 30):
+    """Poll until an ADK service is reachable."""
+    print(f"  Waiting for {name} at {url}...")
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            r = httpx.get(url + "/.well-known/agent-card.json", timeout=2.0)
+            if r.status_code < 500:
+                print(f"  [OK] {name} is up!")
+                return True
+        except Exception:
+            pass
+        time.sleep(1)
+    print(f"  [WARN] {name} did NOT respond within {timeout}s -- continuing anyway.")
+    return False
+
+def start_services():
+    print("=" * 50)
+    print("Starting Network ADK Service on port 8001...")
+    network_process = subprocess.Popen(
+        [sys.executable, "adk-services/network_diagnostics/agent.py"],
+        cwd=os.path.dirname(os.path.abspath(__file__))
+    )
+
+    print("Starting Billing ADK Service on port 8002...")
+    billing_process = subprocess.Popen(
+        [sys.executable, "adk-services/billing_resolution/agent.py"],
+        cwd=os.path.dirname(os.path.abspath(__file__))
+    )
+
+    # Wait for services to come up
+    wait_for_service("http://localhost:8001", "Network Diagnostics ADK")
+    wait_for_service("http://localhost:8002", "Billing Resolution ADK")
+
+    print("Starting Streamlit UI on port 8501...")
+    streamlit_process = subprocess.Popen(
+        [sys.executable, "-m", "streamlit", "run", "ui/app.py"],
+        cwd=os.path.dirname(os.path.abspath(__file__))
+    )
+
+    print("=" * 50)
+    print("All services started!")
+    print("  [1] Network Diagnostics ADK -> http://localhost:8001")
+    print("  [2] Billing Resolution ADK  -> http://localhost:8002")
+    print("  [3] Streamlit UI            -> http://localhost:8501")
+    print("=" * 50)
+    print("Press Ctrl+C to stop all services.")
+
+    try:
+        network_process.wait()
+        billing_process.wait()
+        streamlit_process.wait()
+    except KeyboardInterrupt:
+        print("\nShutting down all services...")
+        network_process.terminate()
+        billing_process.terminate()
+        streamlit_process.terminate()
+
+if __name__ == "__main__":
+    start_services()
+
+================================================================================
+File: setup_db.py
+================================================================================
+
+import sqlite3
+import os
+
+DB_NAME = 'data/telecom_ops.db'
+SCHEMA_FILE = 'sql/01_schema.sql'
+SEED_FILE = 'sql/02_seed_data.sql'
+
+def setup_database():
+    if os.path.exists(DB_NAME):
+        print(f"Removing existing {DB_NAME}...")
+        os.remove(DB_NAME)
+
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    print(f"Applying schema from {SCHEMA_FILE}...")
+    with open(SCHEMA_FILE, 'r') as f:
+        cursor.executescript(f.read())
+
+    print(f"Applying seed data from {SEED_FILE}...")
+    with open(SEED_FILE, 'r') as f:
+        cursor.executescript(f.read())
+
+    conn.commit()
+    conn.close()
+    print("Database setup complete.")
+
+if __name__ == '__main__':
+    setup_database()
+
+================================================================================
+File: test_a2a.py
+================================================================================
+
+import sys
+import site
+import os
+
+for p in site.getsitepackages() + [site.getusersitepackages()]:
+    adk_path = os.path.join(p, 'google', 'adk')
+    if os.path.exists(adk_path) and adk_path not in sys.path:
+        sys.path.append(adk_path)
+
+try:
+    import a2a
+    print("SUCCESS: imported a2a")
+except Exception as e:
+    print("FAIL:", e)
+
+================================================================================
+File: test_gemini.py
+================================================================================
+
+import os
+from dotenv import load_dotenv
+from google import genai
+load_dotenv()
+client = genai.Client()
+response = client.models.embed_content(
+    model='text-embedding-004',
+    contents='What is the meaning of life?',
+)
+print("Success:", response)
+
+================================================================================
+File: test_graph.py
+================================================================================
+
+import os, sys
+os.environ["PYTHONIOENCODING"] = "utf-8"
+# Reconfigure stdout/stderr to utf-8 on Windows
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+from orchestration.graph import build_graph
+import json
+import sys
+
+def test():
+    print("Building graph...")
+    app = build_graph()
+    # Test specific query that gets stuck
+    state = {
+        "user_query": "My 5G keeps dropping in Austin near tower TX-512. Please diagnose.",
+        "execution_trace": [],
+        "agent_context": "",
+        "messages": []
+    }
+    print("Invoking graph...")
+    result = app.invoke(state)
+    print("Final Response:", result.get("final_response"))
+    print("Trace:")
+    for t in result.get("execution_trace", []):
+        print(t)
+
+if __name__ == "__main__":
+    test()
+
+================================================================================
+File: test_tool.py
+================================================================================
+
+from google import genai
+from google.genai import types
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+client = genai.Client()
+
+def get_weather(location: str) -> str:
+    """Gets the weather for a location."""
+    return f"The weather in {location} is 72 degrees."
+
+chat = client.chats.create(
+    model="gemini-2.5-flash",
+    config=types.GenerateContentConfig(
+        tools=[get_weather]
+    )
+)
+
+response = chat.send_message("What is the weather in Austin?")
+print(response.text)
+
+================================================================================
+File: update_code_txt.py
+================================================================================
+
+import os
+
+def collect_code():
+    base_dir = r"d:\capstone2"
+    output_file = os.path.join(base_dir, "code.txt")
+    
+    exclude_dirs = {"venv", "__pycache__", ".git", ".gemini", "data", "adk_services_env"}
+    
+    with open(output_file, "w", encoding="utf-8") as outfile:
+        for root, dirs, files in os.walk(base_dir):
+            dirs[:] = [d for d in dirs if d not in exclude_dirs]
+            
+            for file in files:
+                if file.endswith(".py") or file == ".env" or file == "README.md":
+                    filepath = os.path.join(root, file)
+                    rel_path = os.path.relpath(filepath, base_dir)
+                    
+                    outfile.write(f"\n{'='*80}\n")
+                    outfile.write(f"File: {rel_path}\n")
+                    outfile.write(f"{'='*80}\n\n")
+                    
+                    try:
+                        with open(filepath, "r", encoding="utf-8") as infile:
+                            outfile.write(infile.read())
+                    except Exception as e:
+                        outfile.write(f"<Error reading file: {e}>\n")
+                        
+collect_code()
+
+================================================================================
+File: adk-services\billing_resolution\agent.py
+================================================================================
+
+import sqlite3
+import uvicorn
+from dotenv import load_dotenv
+from google.adk import Agent
+from google.adk.a2a.utils.agent_to_a2a import to_a2a
+from google.adk.tools import FunctionTool
+
+load_dotenv()
+
+DB_PATH = "data/telecom_ops.db"
+
+def lookup_billing_account(customer_id: str) -> str:
+    """Retrieves current balance and recent charges for a customer account."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT current_balance FROM billing_accounts WHERE customer_id = ?", (customer_id,))
+    account = cursor.fetchone()
+    
+    if not account:
+         return f"Customer account {customer_id} not found."
+         
+    cursor.execute("SELECT charge_id, description, amount, is_duplicate_flag FROM billing_charges WHERE customer_id = ?", (customer_id,))
+    charges = cursor.fetchall()
+    conn.close()
+    
+    res = f"Account {customer_id} - Current Balance: ${account['current_balance']:.2f}. "
+    if charges:
+         res += "Recent charges: "
+         for c in charges:
+             duplicate_str = " (FLAGGED DUPLICATE)" if c['is_duplicate_flag'] else ""
+             res += f"[ID: {c['charge_id']}] {c['description']}: ${c['amount']:.2f}{duplicate_str}. "
+    else:
+         res += "No recent charges."
+         
+    return res
+
+def check_duplicate_charges(customer_id: str) -> str:
+    """Checks for charges flagged as duplicates for a customer."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT charge_id, description, amount FROM billing_charges WHERE customer_id = ? AND is_duplicate_flag = 1", (customer_id,))
+    duplicates = cursor.fetchall()
+    conn.close()
+    
+    if not duplicates:
+        return f"No duplicate charges found for {customer_id}."
+        
+    res = f"Found {len(duplicates)} duplicate charge(s) for {customer_id}: "
+    for d in duplicates:
+         res += f"[ID: {d['charge_id']}] {d['description']} for ${d['amount']:.2f}. "
+    return res
+
+def apply_billing_credit(customer_id: str, amount: float, reason: str) -> str:
+    """Applies a credit to a customer's account. Credits over $50 require manual approval."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Check if account exists
+    cursor.execute("SELECT current_balance FROM billing_accounts WHERE customer_id = ?", (customer_id,))
+    account = cursor.fetchone()
+    if not account:
+        return f"Customer account {customer_id} not found."
+        
+    current_balance = account[0]
+    status = 'PENDING_APPROVAL' if amount > 50.0 else 'APPLIED'
+    
+    cursor.execute(
+        "INSERT INTO billing_credits (customer_id, amount, reason, status, reference_number, applied_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+        (customer_id, amount, reason, status, f"REF-{customer_id[-4:]}")
+    )
+    
+    res = f"Credit of ${amount:.2f} recorded. Status: {status} "
+    if amount > 50.0:
+        res += "(exceeds $50 auto-approval limit). "
+        
+    if status == 'APPLIED':
+        new_balance = current_balance - amount
+        cursor.execute("UPDATE billing_accounts SET current_balance = ? WHERE customer_id = ?", (new_balance, customer_id))
+        res += f"Account balance updated from ${current_balance:.2f} to ${new_balance:.2f}."
+    else:
+        res += f"Current balance remains ${current_balance:.2f} until credit is approved."
+        
+    conn.commit()
+    conn.close()
+    
+    return res
+
+# Register tools with the agent
+agent = Agent(
+    name="billing_resolution",
+    model="gemini-2.5-flash",
+    tools=[
+        FunctionTool(lookup_billing_account),
+        FunctionTool(check_duplicate_charges),
+        FunctionTool(apply_billing_credit)
+    ],
+    instruction="You are a Billing Resolution specialist. Use your SQL tools to lookup accounts, identify duplicates, and apply credits for customer disputes."
+)
+
+# Create A2A application
+app = to_a2a(agent, port=8002)
+
+if __name__ == "__main__":
+    print("Starting Billing Resolution ADK Service on port 8002...")
+    uvicorn.run(app, host="0.0.0.0", port=8002)
+================================================================================
+File: adk-services\billing_resolution\__init__.py
+================================================================================
+
+
+================================================================================
+File: adk-services\network_diagnostics\agent.py
+================================================================================
+
+import sqlite3
+import uvicorn
+from dotenv import load_dotenv
+from google.adk import Agent
+from google.adk.a2a.utils.agent_to_a2a import to_a2a
+from google.adk.tools import FunctionTool
+
+load_dotenv()
+
+DB_PATH = "data/telecom_ops.db"
+
+def check_tower_status(tower_id: str) -> str:
+    """Gets the operational status, performance metrics, and any open incidents for a specific tower."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    # JOIN across towers, performance, and incidents
+    query = """
+        SELECT t.city, t.technology, t.status, p.latency_ms, p.packet_loss_pct, p.throughput_mbps, p.signal_strength_dbm, i.incident_id, i.description as incident_desc
+        FROM network_towers t
+        LEFT JOIN tower_performance p ON t.tower_id = p.tower_id
+        LEFT JOIN open_incidents i ON t.tower_id = i.tower_id
+        WHERE t.tower_id = ?
+    """
+    cursor.execute(query, (tower_id,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row:
+        return f"Tower {tower_id} not found."
+    
+    res = f"Tower {tower_id} ({row['city']}, {row['technology']}): {row['status']}. "
+    if row['latency_ms'] is not None:
+        res += f"Signal: {row['signal_strength_dbm']} dBm, Latency: {row['latency_ms']}ms, Packet Loss: {row['packet_loss_pct']}%, Throughput: {row['throughput_mbps']} Mbps. "
+    
+    if row['incident_id']:
+        res += f"Open Incident {row['incident_id']}: {row['incident_desc']}. "
+    else:
+        res += "No open incidents. "
+        
+    return res
+
+def run_connectivity_diagnostics(tower_id: str, symptom: str) -> str:
+    """Diagnoses connectivity issues (like 5G drops) based on tower metrics and provides a recommendation."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT status FROM network_towers WHERE tower_id = ?", (tower_id,))
+    tower = cursor.fetchone()
+    
+    if not tower:
+         return f"Tower {tower_id} not found."
+         
+    cursor.execute("SELECT * FROM tower_performance WHERE tower_id = ?", (tower_id,))
+    perf = cursor.fetchone()
+    
+    cursor.execute("SELECT incident_id FROM open_incidents WHERE tower_id = ?", (tower_id,))
+    inc = cursor.fetchone()
+    conn.close()
+
+    if tower['status'] == 'MAINTENANCE' or inc:
+         return "Diagnostics: Tower is currently undergoing maintenance or has an active incident. Connectivity issues are expected."
+    
+    if perf:
+        if perf['signal_strength_dbm'] > -80 and perf['packet_loss_pct'] < 1.0:
+            return f"Diagnostics: Tower is performing well (Signal: {perf['signal_strength_dbm']} dBm). Recommendation: Issue may be device-side or indoor penetration limitation. Try disabling/re-enabling {symptom.split()[0] if symptom else 'connection'} on the device."
+        else:
+             return f"Diagnostics: Tower is showing degraded performance. Recommendation: Escalate to Level 2 support for network investigation."
+             
+    return "Diagnostics: Not enough performance data to conclude."
+
+def get_regional_network_summary(region: str) -> str:
+    """Aggregates tower counts and operational statuses by region."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT status, count(*) FROM network_towers WHERE region = ? GROUP BY status", (region,))
+    rows = cursor.fetchall()
+    conn.close()
+    
+    if not rows:
+        return f"No network towers found in region {region}."
+        
+    summary = f"Regional Network Summary for {region}: "
+    for status, count in rows:
+        summary += f"{count} tower(s) {status}. "
+    return summary
+
+def get_customer_contact(customer_id: str) -> str:
+    """Gets the masked contact phone number for a customer."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT phone_number FROM customer_subscriptions WHERE customer_id = ?", (customer_id,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if row and row["phone_number"]:
+        phone = row["phone_number"]
+        # Mask phone number for zero-trust security: e.g. 941****78
+        if len(phone) > 6:
+            return phone[:3] + "****" + phone[-2:]
+        return "****"
+    return "Phone number unavailable"
+
+def get_customer_region(customer_id: str) -> str:
+    """Gets the network region associated with a customer ID."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT region FROM customer_subscriptions WHERE customer_id = ?", (customer_id,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if row and row["region"]:
+        return row["region"]
+    return "Region not found"
+
+# Register tools with the agent
+agent = Agent(
+    name="network_diagnostics",
+    model="gemini-2.5-flash",
+    tools=[
+        FunctionTool(check_tower_status),
+        FunctionTool(run_connectivity_diagnostics),
+        FunctionTool(get_regional_network_summary),
+        FunctionTool(get_customer_contact),
+        FunctionTool(get_customer_region)
+    ],
+    instruction="""You are a Network Diagnostics specialist. Use your SQL tools to query tower status, performance, and incidents to answer user inquiries.
+If asked about outages for a specific customer without a tower ID or region:
+1. Use get_customer_region to find their region.
+2. If a region is found, use get_regional_network_summary to check for outages in that region.
+3. If no region is found, return exactly: 'Unable to retrieve region for customer. Please provide the region or tower ID to check for outages.'"""
+)
+
+# Create A2A application
+app = to_a2a(agent, port=8001)
+
+if __name__ == "__main__":
+    print("Starting Network Diagnostics ADK Service on port 8001...")
+    uvicorn.run(app, host="0.0.0.0", port=8001)
+
+================================================================================
+File: adk-services\network_diagnostics\__init__.py
+================================================================================
+
+
+================================================================================
+File: config\company_info.py
+================================================================================
+
+COMPANY_NAME = "Prodapt Telecom"
+SUPPORT_EMAIL = "[support@prodapt.com](mailto:support@prodapt.com)"
+SUPPORT_PHONE = "+1-800-555-1234"
+
+================================================================================
+File: llamaindex_rag\document_rag.py
+================================================================================
+
+import os
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Settings
+from llama_index.llms.gemini import Gemini
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+
+# Initialize models for LlamaIndex
+llm = Gemini(model_name="models/gemini-2.5-flash")
+embed_model = HuggingFaceEmbedding(model_name="all-MiniLM-L6-v2")
+
+Settings.llm = llm
+Settings.embed_model = embed_model
+
+from llama_index.core import StorageContext, load_index_from_storage
+
+_query_engine = None
+
+def get_policy_query_engine():
+    global _query_engine
+    if _query_engine is None:
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        persist_dir = os.path.join(base_dir, 'data', 'vector_index')
+        documents_dir = os.path.join(base_dir, 'data', 'documents')
+        
+        if os.path.exists(persist_dir):
+            storage_context = StorageContext.from_defaults(persist_dir=persist_dir)
+            index = load_index_from_storage(storage_context)
+        else:
+            documents = SimpleDirectoryReader(documents_dir).load_data()
+            index = VectorStoreIndex.from_documents(documents)
+            index.storage_context.persist(persist_dir=persist_dir)
+            
+        _query_engine = index.as_query_engine(similarity_top_k=3)
+    return _query_engine
+
+def answer_policy_question(query: str) -> str:
+    """
+    Answers a policy question using RAG over the provided text documents.
+    """
+    engine = get_policy_query_engine()
+    response = engine.query(query)
+    return str(response)
+
+if __name__ == '__main__':
+    # Test
+    print(answer_policy_question("What is the roaming policy for Europe?"))
+
+================================================================================
+File: llamaindex_rag\sql_semantic_search.py
+================================================================================
+
+import os
+from sqlalchemy import create_engine, MetaData
+from llama_index.core import SQLDatabase, VectorStoreIndex
+from llama_index.core.objects import ObjectIndex, SQLTableSchema
+from llama_index.core.query_engine import SQLTableRetrieverQueryEngine
+from llama_index.llms.gemini import Gemini
+from llama_index.embeddings.gemini import GeminiEmbedding
+from llama_index.core import Settings
+
+from dotenv import load_dotenv
+load_dotenv()
+
+llm = Gemini(model_name="models/gemini-2.5-flash")
+embed_model = GeminiEmbedding(model_name="models/gemini-embedding-001")
+
+Settings.llm = llm
+Settings.embed_model = embed_model
+
+_sql_query_engine = None
+
+def get_sql_query_engine():
+    global _sql_query_engine
+    if _sql_query_engine is None:
+        db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'telecom_ops.db')
+        engine = create_engine(f"sqlite:///{db_path}")
+        metadata = MetaData()
+        metadata.reflect(engine)
+        
+        sql_database = SQLDatabase(engine)
+        
+        # We need to map the tables with explicit context strings
+        context_dict = {
+            "network_towers": "Inventory of telecom towers. Contains region, city, technology (LTE, 5G), operational status, capacity, and last maintenance dates.",
+            "network_outages": "Historical network outage records. Contains start and end times, severity (CRITICAL, HIGH, MEDIUM, LOW), root cause, affected customers, and the associated tower_id.",
+            "tower_performance": "Live telemetry and performance metrics for network towers. Contains average latency (ms), packet loss percentage, throughput (mbps), and signal strength (dbm) for a tower_id at a recorded_at timestamp.",
+            "open_incidents": "Active Network Operations Center (NOC) incidents linked to towers. Contains severity, status (OPEN, IN_PROGRESS), description, ETA, and tower_id.",
+        }
+        
+        ALLOWED_TABLES = [
+            "network_towers",
+            "network_outages",
+            "tower_performance",
+            "open_incidents"
+        ]
+        
+        table_schema_objs = [
+            SQLTableSchema(table_name=t, context_str=context_dict.get(t, "")) for t in ALLOWED_TABLES
+        ]
+        
+        obj_index = ObjectIndex.from_objects(
+            table_schema_objs,
+            index_cls=VectorStoreIndex,
+        )
+        
+        _sql_query_engine = SQLTableRetrieverQueryEngine(
+            sql_database,
+            obj_index.as_retriever(similarity_top_k=2),
+        )
+    return _sql_query_engine
+
+def query_network_analytics(query: str) -> str:
+    """
+    Answers an analytics question by translating text to SQL against telecom_ops.db.
+    """
+    blocked_words = [
+        "billing",
+        "customer",
+        "account",
+        "credit",
+        "charge",
+        "cust-"
+    ]
+
+    if any(word in query.lower() for word in blocked_words):
+        return "Billing data requests must be handled by BillingResolutionADK."
+
+    engine = get_sql_query_engine()
+    response = engine.query(query)
+    return str(response)
+
+if __name__ == '__main__':
+    # Test
+    print(query_network_analytics("Which region had the most CRITICAL outages?"))
+
+================================================================================
+File: orchestration\adk_remote_client.py
+================================================================================
+
+"""
+ADK Remote Client — uses the ADK native RemoteA2aAgent and Runner.
+"""
+import uuid
+import logging
+from google.genai import types
+from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
+from google.adk.runners import Runner
+from google.adk.sessions.in_memory_session_service import InMemorySessionService
+
+logger = logging.getLogger(__name__)
+
+NETWORK_ADK_URL = "http://localhost:8001"
+BILLING_ADK_URL = "http://localhost:8002"
+
+def _call_a2a_service(base_url: str, agent_name: str, desc: str, message: str) -> str:
+    try:
+        agent_card = f"{base_url.rstrip('/')}/.well-known/agent-card.json"
+        agent = RemoteA2aAgent(
+            name=agent_name,
+            description=desc,
+            agent_card=agent_card,
+        )
+        runner = Runner(
+            agent=agent,
+            app_name=f"{agent_name}_app",
+            session_service=InMemorySessionService()
+        )
+        
+        content = types.Content(role="user", parts=[types.Part.from_text(text=message)])
+        session_id = str(uuid.uuid4())
+        runner.session_service.create_session_sync(app_name=f"{agent_name}_app", user_id="supervisor_user", session_id=session_id)
+        
+        events = runner.run(
+            user_id="supervisor_user",
+            session_id=session_id,
+            new_message=content
+        )
+        
+        response_text = ""
+        for event in events:
+            if event.author == agent_name and event.content and event.content.parts:
+                texts = [part.text for part in event.content.parts if part.text]
+                if texts:
+                    response_text = " ".join(texts)
+                    
+        return response_text or "[No agent response in task history]"
+    except Exception as e:
+        logger.error(f"Error calling ADK service at {base_url}: {e}")
+        return f"[ERROR calling {base_url}]: {type(e).__name__}: {e}"
+
+def invoke_network_adk(query: str) -> str:
+    """Invoke the Network Diagnostics ADK service."""
+    return _call_a2a_service(
+        NETWORK_ADK_URL, 
+        "network_diagnostics", 
+        "Remote network diagnostics agent.", 
+        query
+    )
+
+def invoke_billing_adk(query: str) -> str:
+    """Invoke the Billing Resolution ADK service."""
+    return _call_a2a_service(
+        BILLING_ADK_URL, 
+        "billing_resolution", 
+        "Remote billing resolution agent.", 
+        query
+    )
+================================================================================
+File: orchestration\crew_nodes.py
+================================================================================
+
+from crewai import Agent, Task, Crew, Process
+from langchain_google_genai import ChatGoogleGenerativeAI
+from dotenv import load_dotenv
+import os
+
+from config.company_info import COMPANY_NAME, SUPPORT_EMAIL, SUPPORT_PHONE
+
+load_dotenv()
+
+# Set GEMINI_API_KEY for LiteLLM
+os.environ["GEMINI_API_KEY"] = os.environ.get("GOOGLE_API_KEY", "")
+
+# We use the liteLLM string format for Gemini
+llm_model = "gemini/gemini-2.5-flash"
+
+def format_customer_response(user_query: str, agent_context: str, customer_name: str = None) -> str:
+    """
+    Uses CrewAI to draft a professional response to the customer based on the context.
+    """
+    
+    # Define Agents
+    writer = Agent(
+        role='Communications Specialist',
+        goal='Draft clear, empathetic, and professional responses to customer inquiries using the provided agent context.',
+        backstory='You are an expert customer support specialist at Prodapt telecom. You synthesize complex technical or billing data into easy-to-understand messages for the customer. CRITICAL: Financial statuses must NEVER be changed. If context contains PENDING_APPROVAL, APPLIED, REJECTED, or UNDER_REVIEW, your output must preserve that exact status meaning without alteration (e.g., never say a pending credit is approved).',
+        verbose=True,
+        allow_delegation=False,
+        llm=llm_model
+    )
+    
+    reviewer = Agent(
+        role='Quality Reviewer',
+        goal='Review the drafted response for accuracy, tone, and policy compliance.',
+        backstory='You are the senior communications manager at Prodapt. You ensure every email sent to customers is polite, accurate, policy compliant, and reflects well on the brand. You strictly ensure that financial statuses (PENDING_APPROVAL, APPLIED, REJECTED, UNDER_REVIEW) are not misrepresented.',
+        verbose=True,
+        allow_delegation=False,
+        llm=llm_model
+    )
+    
+    greeting_name = customer_name if customer_name else "Valued Customer"
+    
+    # Define Tasks
+    draft_task = Task(
+        description=f"""The customer asked: '{user_query}'. Based on the following information retrieved from our systems (agent_context), draft a polite email response: 
+{agent_context}
+
+Make sure to answer their question fully based ONLY on the provided context. 
+
+CRITICAL RULES:
+1. Start the email EXACTLY with: 'Dear {greeting_name},'
+2. Never invent or hallucinate the customer's name. Use exactly the greeting provided above.
+3. If the context contains a status like PENDING_APPROVAL, APPLIED, REJECTED, or UNDER_REVIEW, clearly state that exact status. Never rewrite pending as approved.
+4. Only append the company contact information ({COMPANY_NAME}, Email: {SUPPORT_EMAIL}, Phone: {SUPPORT_PHONE}) if this is an escalation, requires manual approval, has missing information, remains unresolved, or needs a support ticket. Do NOT append contact info to every response. Never invent contact info.""",
+        expected_output="A well-written, polite email drafted for the customer.",
+        agent=writer
+    )
+    
+    review_task = Task(
+        description="Review the draft email. Ensure the tone is empathetic and policy compliant. Verify that no financial statuses (like PENDING_APPROVAL) were hallucinated or incorrectly modified to seem fully resolved if they are still pending. Output the final text only.",
+        expected_output="The final, polished email ready to be sent to the customer.",
+        agent=reviewer
+    )
+    
+    # Form the Crew
+    crew = Crew(
+        agents=[writer, reviewer],
+        tasks=[draft_task, review_task],
+        process=Process.sequential,
+        verbose=True
+    )
+    
+    result = crew.kickoff()
+    return str(result)
+
+if __name__ == "__main__":
+    # Test
+    q = "Customer CUST-10002 was charged twice. My name is John Smith."
+    c = "Successfully applied $50.0 credit to CUST-10002 for 'Duplicate charge refund'. New balance is $0.0. Status: PENDING_APPROVAL"
+    print(format_customer_response(q, c, "John Smith"))
+
+================================================================================
+File: orchestration\graph.py
+================================================================================
+
+import os
+import sys
+import re
+from typing import Literal
+
+from langgraph.graph import StateGraph, START, END
+from langchain_google_genai import ChatGoogleGenerativeAI
+
+# Add project root to sys path
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+from orchestration.state import AgentState
+from llamaindex_rag.document_rag import answer_policy_question
+from llamaindex_rag.sql_semantic_search import query_network_analytics
+from orchestration.adk_remote_client import invoke_network_adk, invoke_billing_adk
+from orchestration.crew_nodes import format_customer_response
+
+# Use gemini-2.5-flash with thinking disabled — avoids empty-output error
+llm = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash",
+    google_api_key=os.getenv("GOOGLE_API_KEY"),
+    temperature=0,
+    thinking_budget=0,  # disable thinking tokens to get reliable text output
+)
+
+VALID_ROUTES = [
+    "policy_rag",
+    "network_analytics",
+    "network_diagnostics_adk",
+    "billing_resolution_adk",
+    "customer_comms_crew",
+    "FINISH",
+]
+
+def security_gate_node(state: AgentState) -> dict:
+    query = state.get('user_query', '').lower()
+    BLOCKED_PATTERNS = [
+        "ignore previous instructions",
+        "i am admin",
+        "system prompt",
+        "show database",
+        "dump data",
+        "reveal all users",
+        "bypass security",
+    ]
+    
+    if any(pattern in query for pattern in BLOCKED_PATTERNS):
+        return {
+            "final_response": "Access denied. Security policy violation detected.",
+            "execution_trace": [{"worker": "SecurityGuard", "output": "Blocked due to prompt injection attempt"}]
+        }
+    return {}
+
+def supervisor_node(state: AgentState) -> dict:
+    query = state.get('user_query', '')
+    context = state.get('agent_context', '')
+    has_final = bool(state.get('final_response', ''))
+    chat_history = state.get('chat_history', '')
+    chat_id = state.get('chat_id', 'unknown')
+    
+    if has_final:
+        return {"next": "FINISH"}
+    
+    trace = state.get('execution_trace', [])
+    visited_workers = [t.get('worker') for t in trace if 'worker' in t]
+    worker_to_route = {
+        "PolicyRAG": "policy_rag",
+        "NetworkAnalytics": "network_analytics",
+        "NetworkDiagnosticsADK": "network_diagnostics_adk",
+        "BillingResolutionADK": "billing_resolution_adk",
+        "CustomerCommsCrew": "customer_comms_crew"
+    }
+    visited_routes = [worker_to_route.get(w, w) for w in visited_workers]
+
+    # Loop Prevention & Clarification Check
+    failure_keywords = [
+        "need tower id", "need tower", "need region", "please provide",
+        "insufficient information", "unable to retrieve", "cannot determine",
+        "missing required information", "not enough information", "missing", "unavailable", "unable to answer"
+    ]
+    if trace:
+        last_out = str(trace[-1].get('output', '')).lower()
+        if any(k in last_out for k in failure_keywords):
+            return {"next": "customer_comms_crew"}
+
+    # Retry Tracking (Max 2 visits per route)
+    route_counts = {}
+    for r in visited_routes:
+        route_counts[r] = route_counts.get(r, 0) + 1
+    invalid_routes = [r for r, count in route_counts.items() if count >= 2]
+
+    prompt = f"""You are the Supervisor of a Telecom AI Operations Center.
+Session Chat ID: {chat_id}
+Chat History:
+"{chat_history}"
+
+User Query: "{query}"
+Context gathered so far: "{context}"
+Final response already generated: {has_final}
+Routes already executed: {visited_routes}
+Routes that must NOT be selected again (exceeded retries): {invalid_routes}
+
+Choose exactly ONE of the following routes and reply with ONLY that route name, nothing else:
+- policy_rag          : for policy, roaming, SLA rules, FAQ
+- network_analytics   : for outage trends, latency stats, top-N queries against the DB
+- network_diagnostics_adk : for live tower diagnostics, signal drops, open incidents, connectivity, outages, tower status
+- billing_resolution_adk  : for billing disputes, duplicate charges, credits
+- customer_comms_crew : when you have enough info to write the final customer response
+- FINISH              : only after customer_comms_crew has already produced a final response
+
+CRITICAL ROUTING RULES:
+1. If the user asks about "tower status", "outages", "diagnostics", "connectivity", or "signal issues", you MUST route to network_diagnostics_adk, NOT network_analytics.
+2. Do NOT choose a route that is in the 'Routes that must NOT be selected again' list.
+3. If you lack information, route to customer_comms_crew to ask the user.
+4. Reply with just the route name."""
+
+    try:
+        response = llm.invoke(prompt)
+        raw = response.content.strip().lower().replace("-", "_").replace(" ", "_")
+        
+        # Determine the matched route
+        matched_route = None
+        for route in VALID_ROUTES:
+            if route.lower() in raw:
+                matched_route = route
+                break
+                
+        if not matched_route:
+            matched_route = "FINISH" if has_final else "customer_comms_crew"
+            
+        # Prevent premature FINISH
+        if matched_route == "FINISH" and not has_final:
+            matched_route = "customer_comms_crew"
+            
+        return {"next": matched_route}
+    except Exception as e:
+        print(f"[Supervisor ERROR]: {e}")
+        return {"next": "FINISH" if has_final else "customer_comms_crew"}
+
+def policy_rag_node(state: AgentState) -> dict:
+    query_context = f"Chat History:\n{state.get('chat_history', '')}\n\nLatest Query: {state['user_query']}" if state.get('chat_history') else state['user_query']
+    resp = str(answer_policy_question(query_context))
+    new_context = state.get('agent_context', '') + f"\n[PolicyRAG]: {resp}"
+    return {
+        "agent_context": new_context,
+        "execution_trace": [{"worker": "PolicyRAG", "output": resp}]
+    }
+
+def network_analytics_node(state: AgentState) -> dict:
+    query_context = f"Chat History:\n{state.get('chat_history', '')}\n\nLatest Query: {state['user_query']}" if state.get('chat_history') else state['user_query']
+    resp = str(query_network_analytics(query_context))
+    new_context = state.get('agent_context', '') + f"\n[NetworkAnalytics]: {resp}"
+    return {
+        "agent_context": new_context,
+        "execution_trace": [{"worker": "NetworkAnalytics", "output": resp}]
+    }
+
+def network_diagnostics_adk_node(state: AgentState) -> dict:
+    query_context = f"Chat History:\n{state.get('chat_history', '')}\n\nLatest Query: {state['user_query']}" if state.get('chat_history') else state['user_query']
+    resp = str(invoke_network_adk(query_context))
+    new_context = state.get('agent_context', '') + f"\n[NetworkDiagnosticsADK]: {resp}"
+    return {
+        "agent_context": new_context,
+        "execution_trace": [{"worker": "NetworkDiagnosticsADK", "output": resp}]
+    }
+
+def billing_resolution_adk_node(state: AgentState) -> dict:
+    query_context = f"Chat History:\n{state.get('chat_history', '')}\n\nLatest Query: {state['user_query']}" if state.get('chat_history') else state['user_query']
+    resp = str(invoke_billing_adk(query_context))
+    new_context = state.get('agent_context', '') + f"\n[BillingResolutionADK]: {resp}"
+    return {
+        "agent_context": new_context,
+        "execution_trace": [{"worker": "BillingResolutionADK", "output": resp}]
+    }
+
+def customer_comms_crew_node(state: AgentState) -> dict:
+    context = state.get('agent_context', '')
+    
+    import re
+    matches = re.findall(r"CUST-\d+", context)
+    
+    if len(set(matches)) > 1:
+        return {
+            "final_response": "Security validation failed. Multiple customer records detected.",
+            "execution_trace": [{"worker": "CustomerCommsCrew", "output": "Blocked due to privacy policy"}]
+        }
+
+    query_context = f"Chat History:\n{state.get('chat_history', '')}\n\nLatest Query: {state['user_query']}" if state.get('chat_history') else state['user_query']
+    
+    name_prompt = f"Extract the customer's full name from the following text if they explicitly state their name (e.g. 'I am John', 'My name is Jane'). Return ONLY their name. If no name is provided, return exactly 'None'.\nText: {query_context}"
+    extracted_name = llm.invoke(name_prompt).content.strip()
+    customer_name = extracted_name if extracted_name.lower() != 'none' else None
+    
+    resp = str(format_customer_response(query_context, context, customer_name))
+    # Mask PII
+    resp = re.sub(r"(CUST-)\d+", r"\1****", resp)
+    
+    return {
+        "final_response": resp,
+        "execution_trace": [{"worker": "CustomerCommsCrew", "output": resp}],
+        "customer_name": customer_name or state.get('customer_name', '')
+    }
+
+def build_graph():
+    workflow = StateGraph(AgentState)
+    
+    workflow.add_node("security_gate", security_gate_node)
+    workflow.add_node("supervisor", supervisor_node)
+    workflow.add_node("policy_rag", policy_rag_node)
+    workflow.add_node("network_analytics", network_analytics_node)
+    workflow.add_node("network_diagnostics_adk", network_diagnostics_adk_node)
+    workflow.add_node("billing_resolution_adk", billing_resolution_adk_node)
+    workflow.add_node("customer_comms_crew", customer_comms_crew_node)
+    
+    workflow.add_edge(START, "security_gate")
+    
+    workflow.add_conditional_edges(
+        "security_gate",
+        lambda x: "FINISH" if x.get("final_response") else "supervisor",
+        {
+            "supervisor": "supervisor",
+            "FINISH": END
+        }
+    )
+    
+    workflow.add_conditional_edges(
+        "supervisor",
+        lambda x: x["next"],
+        {
+            "policy_rag": "policy_rag",
+            "network_analytics": "network_analytics",
+            "network_diagnostics_adk": "network_diagnostics_adk",
+            "billing_resolution_adk": "billing_resolution_adk",
+            "customer_comms_crew": "customer_comms_crew",
+            "FINISH": END
+        }
+    )
+    
+    workflow.add_edge("policy_rag", "supervisor")
+    workflow.add_edge("network_analytics", "supervisor")
+    workflow.add_edge("network_diagnostics_adk", "supervisor")
+    workflow.add_edge("billing_resolution_adk", "supervisor")
+    workflow.add_edge("customer_comms_crew", "supervisor")
+    
+    return workflow.compile()
+
+================================================================================
+File: orchestration\state.py
+================================================================================
+
+from typing import TypedDict, List, Dict, Annotated
+import operator
+
+class AgentState(TypedDict):
+    messages: Annotated[list, operator.add]
+    next: str
+    user_query: str
+    chat_history: str
+    agent_context: str
+    final_response: str
+    execution_trace: Annotated[List[Dict[str, str]], operator.add]
+    chat_id: str
+    customer_name: str
+
+================================================================================
+File: ui\app.py
+================================================================================
+
+import os, sys
+os.environ["PYTHONIOENCODING"] = "utf-8"
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+import streamlit as st
+import time
+import requests
+import uuid
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+from orchestration.graph import build_graph
+from orchestration.state import AgentState
+
+st.set_page_config(page_title="Prodapt AI Operations Center", layout="wide")
+
+@st.cache_resource
+def get_app():
+    return build_graph()
+
+graph_app = get_app()
+
+def check_db_status():
+    db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'telecom_ops.db')
+    return "Ready" if os.path.exists(db_path) else "Run init_db.py"
+
+def check_vector_status():
+    idx_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'vector_index')
+    return "Built" if os.path.exists(idx_path) else "Will build on first RAG query"
+
+def check_adk_status(port):
+    try:
+        requests.get(f"http://localhost:{port}/.well-known/agent-card.json", timeout=1)
+        return "Running"
+    except:
+        return "Not running"
+
+# Sidebar
+with st.sidebar:
+    st.header("System Status")
+    st.write(f"**Database:** {check_db_status()}")
+    st.write(f"**Vector Index:** {check_vector_status()}")
+    
+    net_status = check_adk_status(8001)
+    bill_status = check_adk_status(8002)
+    st.write(f"**Network ADK (8001):** {net_status}")
+    st.write(f"**Billing ADK (8002):** {bill_status}")
+    
+    if net_status == "Not running" or bill_status == "Not running":
+        st.warning("Start ADK services: `python adk-services/network_diagnostics/agent.py` and `python adk-services/billing_resolution/agent.py`")
+        
+    st.header("Framework Map")
+    st.markdown("""
+    | Capability | Framework |
+    |---|---|
+    | Policy FAQ | LlamaIndex RAG |
+    | Analytics | Semantic SQL |
+    | Diagnostics | Google ADK A2A |
+    | Orchestration | LangGraph |
+    | Final Comms | CrewAI |
+    """)
+
+# Main Content
+st.title("📡 Prodapt AI Operations Center")
+st.caption("Multi-Framework Agentic AI · LangGraph · LlamaIndex · Google ADK · CrewAI")
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+    
+if "chat_id" not in st.session_state:
+    st.session_state.chat_id = str(uuid.uuid4())
+
+# Display history
+for msg_idx, msg in enumerate(st.session_state.messages):
+    if msg["role"] == "user":
+        with st.chat_message("user"):
+            st.markdown(msg["content"])
+    else:
+        with st.chat_message("assistant"):
+            st.success(msg["content"])
+            if msg.get("trace"):
+                with st.expander("Agent Execution Trace", expanded=False):
+                    for idx, step in enumerate(msg["trace"]):
+                        st.markdown(f"### Step {idx+1} — {step['worker']}")
+                        st.text_area(label=f"trace_{idx}_hist", value=str(step['output']), height=250, disabled=True, key=f"hist_{msg_idx}_{idx}")
+
+if prompt := st.chat_input("Enter customer inquiry... (e.g. 'Customer CUST-10002 was charged twice')"):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        with st.spinner("Processing inquiry through multi-agent system..."):
+            try:
+                chat_history = ""
+                # Get the last 5 successful turns (10 messages) excluding the current one
+                recent_msgs = st.session_state.messages[-11:-1] if len(st.session_state.messages) > 1 else []
+                if recent_msgs:
+                    history_lines = []
+                    for m in recent_msgs:
+                        role = "Customer" if m["role"] == "user" else "Agent"
+                        # Only include successful agent responses or user queries, skip if error
+                        if "Error:" not in str(m["content"]):
+                            history_lines.append(f"{role}: {m['content']}")
+                    chat_history = "\n".join(history_lines)
+
+                initial_state = {
+                    "user_query": prompt, 
+                    "execution_trace": [], 
+                    "agent_context": "", 
+                    "messages": [], 
+                    "chat_history": chat_history,
+                    "chat_id": st.session_state.chat_id
+                }
+                final_state = graph_app.invoke(initial_state)
+                
+                final_response = final_state.get('final_response', "Error: No final response generated.")
+                trace = final_state.get('execution_trace', [])
+                
+                st.success(final_response)
+                
+                with st.expander("Agent Execution Trace", expanded=True):
+                    if not trace:
+                        st.info("No workers executed.")
+                    else:
+                        for idx, step in enumerate(trace):
+                            st.markdown(f"### Step {idx+1} — {step['worker']}")
+                            st.text_area(label=f"trace_{idx}", value=str(step['output']), height=250, disabled=True, key=f"curr_{len(st.session_state.messages)}_{idx}")
+                            
+                st.session_state.messages.append({
+                    "role": "assistant", 
+                    "content": final_response, 
+                    "trace": trace
+                })
+                
+            except Exception as e:
+                st.error(f"An error occurred: {str(e)}")

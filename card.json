@@ -1,0 +1,53 @@
+{
+  "capabilities": {},
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "text/plain"
+  ],
+  "description": "An ADK Agent",
+  "name": "Network_Diagnostics_ADK",
+  "preferredTransport": "JSONRPC",
+  "protocolVersion": "0.3.0",
+  "skills": [
+    {
+      "description": "I am a Network Diagnostics AI. Use tools to check tower status and incidents to diagnose network issues.",
+      "id": "Network_Diagnostics_ADK",
+      "name": "model",
+      "tags": [
+        "llm"
+      ]
+    },
+    {
+      "description": "Gets the live status, location, and type of a network tower, including performance and open incidents.",
+      "id": "Network_Diagnostics_ADK-check_tower_status",
+      "name": "check_tower_status",
+      "tags": [
+        "llm",
+        "tools"
+      ]
+    },
+    {
+      "description": "Queries tower performance to check for high latency/packet loss or low signal strength and returns a diagnostic recommendation.",
+      "id": "Network_Diagnostics_ADK-run_connectivity_diagnostics",
+      "name": "run_connectivity_diagnostics",
+      "tags": [
+        "llm",
+        "tools"
+      ]
+    },
+    {
+      "description": "Aggregates tower counts and statuses by region.",
+      "id": "Network_Diagnostics_ADK-get_regional_network_summary",
+      "name": "get_regional_network_summary",
+      "tags": [
+        "llm",
+        "tools"
+      ]
+    }
+  ],
+  "supportsAuthenticatedExtendedCard": false,
+  "url": "http://localhost:8001",
+  "version": "0.0.1"
+}
