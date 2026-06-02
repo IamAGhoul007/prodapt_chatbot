@@ -15,22 +15,22 @@ def lookup_billing_account(customer_id: str) -> str:
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
-    cursor.execute("SELECT current_balance FROM billing_accounts WHERE customer_id = ?", (customer_id,))
+    cursor.execute("SELECT current_balance, billing_cycle_day FROM billing_accounts WHERE customer_id = ?", (customer_id,))
     account = cursor.fetchone()
     
     if not account:
          return f"Customer account {customer_id} not found."
          
-    cursor.execute("SELECT charge_id, description, amount, is_duplicate_flag FROM billing_charges WHERE customer_id = ?", (customer_id,))
+    cursor.execute("SELECT charge_id, description, amount, is_duplicate_flag, charge_date, billing_period FROM billing_charges WHERE customer_id = ?", (customer_id,))
     charges = cursor.fetchall()
     conn.close()
     
-    res = f"Account {customer_id} - Current Balance: ${account['current_balance']:.2f}. "
+    res = f"Account {customer_id} - Current Balance: ${account['current_balance']:.2f}, Billing Cycle Day: {account['billing_cycle_day']}. "
     if charges:
          res += "Recent charges: "
          for c in charges:
              duplicate_str = " (FLAGGED DUPLICATE)" if c['is_duplicate_flag'] else ""
-             res += f"[ID: {c['charge_id']}] {c['description']}: ${c['amount']:.2f}{duplicate_str}. "
+             res += f"[ID: {c['charge_id']}] {c['description']}: ${c['amount']:.2f} on {c['charge_date']} (Period: {c['billing_period']}){duplicate_str}. "
     else:
          res += "No recent charges."
          

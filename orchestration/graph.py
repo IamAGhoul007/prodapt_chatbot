@@ -109,10 +109,11 @@ Choose exactly ONE of the following routes and reply with ONLY that route name, 
 - FINISH              : only after customer_comms_crew has already produced a final response
 
 CRITICAL ROUTING RULES:
-1. If the user asks about "tower status", "outages", "diagnostics", "connectivity", or "signal issues", you MUST route to network_diagnostics_adk, NOT network_analytics.
-2. Do NOT choose a route that is in the 'Routes that must NOT be selected again' list.
-3. If you lack information, route to customer_comms_crew to ask the user.
-4. Reply with just the route name."""
+1. If the user asks about "tower status", "outages", "diagnostics", "connectivity", or "signal issues" for a SPECIFIC customer or tower, route to network_diagnostics_adk.
+2. If the user asks about regional, aggregate, or historical trends (e.g. "which region had the most outages", "most CRITICAL network outages recently"), route to network_analytics.
+3. Do NOT choose a route that is in the 'Routes that must NOT be selected again' list.
+4. If you lack information, route to customer_comms_crew to ask the user.
+5. Reply with just the route name."""
 
     try:
         response = llm.invoke(prompt)
