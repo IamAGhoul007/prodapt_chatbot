@@ -21,7 +21,6 @@ This repository contains the Telecom AI Operations Center application, built usi
    GOOGLE_API_KEY=your_google_api_key_here
    OPENAI_API_KEY=your_openai_api_key_here
    TAVILY_API_KEY=your_tavily_api_key_here
-   OPENWEATHERMAP_API_KEY=your_openweathermap_key_here
    ```
 
 ## How to Run the Application
